@@ -1,0 +1,32 @@
+# Virtual Environment
+.venv/
+venv/
+env/
+
+# Python Cache
+__pycache__/
+*.py[cod]
+
+# Environment Variables
+.env
+.env.*
+
+# Audio Files
+*.wav
+*.mp3
+*.m4a
+*.flac
+
+# Downloaded Files
+downloades/
+
+# IDE
+.vscode/
+.idea/
+
+# System Files
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
