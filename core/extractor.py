@@ -8,7 +8,7 @@ import os
 
 
 def get_llm():
-    return ChatGoogleGenerativeAI(model = "gemini-pro", google_api_key = os.getenv("SARVAM_API_KEY"),temperature=0.2)
+    return ChatGoogleGenerativeAI(model = "gemini-pro", google_api_key = os.getenv("GROQ_API_KEY"),temperature=0.2)
 
 
 

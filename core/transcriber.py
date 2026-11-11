@@ -14,9 +14,9 @@ from pydub import AudioSegment
 # Load environment variables from .env
 load_dotenv()
 
-# Sarvam API accepts audio up to 30 seconds.
+# GROQ API accepts audio up to 30 seconds.
 # We use 25-second pieces with a safety margin.
-SARVAM_PIECE_SECONDS = 25
+GROQ_PIECE_SECONDS = 25
 
 # Whisper model configuration
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "small").strip()
@@ -25,14 +25,14 @@ WHISPER_MODEL = os.getenv("WHISPER_MODEL", "small").strip()
 if WHISPER_MODEL == "whisper-large-v3":
     WHISPER_MODEL = "large-v3"
 
-SARVAM_API_KEY = os.getenv("SARVAM_API_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-SARVAM_STT_TRANSLATE_URL = (
-    "https://api.sarvam.ai/speech-to-text-translate"
+GROQ_STT_TRANSLATE_URL = (
+    "https://api.groq.com/openai/v1/audio/transcriptions"
 )
 
-SARVAM_MODEL = os.getenv(
-    "SARVAM_STT_MODEL",
+GROQ_MODEL = os.getenv(
+    "GROQ_STT_MODEL",
     "saaras:v2.5"
 )
 
@@ -68,11 +68,11 @@ def transcribe_chunk_whisper(chunk_path: str) -> str:
     return result["text"]
 
 
-def _send_to_sarvam(piece_path: str) -> str:
-    """Send one audio piece to Sarvam and return English transcript."""
+def _send_to_groq(piece_path: str) -> str:
+    """Send one audio piece to GROQ and return English transcript."""
 
     headers = {
-        "api-subscription-key": SARVAM_API_KEY
+        "api-subscription-key": GROQ_API_KEY
     }
 
     with open(piece_path, "rb") as f:
@@ -86,12 +86,12 @@ def _send_to_sarvam(piece_path: str) -> str:
         }
 
         data = {
-            "model": SARVAM_MODEL,
+            "model": GROQ_MODEL,
             "with_diarization": "false"
         }
 
         response = requests.post(
-            SARVAM_STT_TRANSLATE_URL,
+            GROQ_STT_TRANSLATE_URL,
             headers=headers,
             files=files,
             data=data,
@@ -99,7 +99,7 @@ def _send_to_sarvam(piece_path: str) -> str:
         )
 
     if not response.ok:
-        print(f"\nSarvam returned {response.status_code}")
+        print(f"\nGROQ returned {response.status_code}")
         print(f"Response body: {response.text}\n")
 
         response.raise_for_status()
@@ -107,20 +107,20 @@ def _send_to_sarvam(piece_path: str) -> str:
     return response.json().get("transcript", "")
 
 
-def transcribe_chunk_sarvam(chunk_path: str) -> str:
+def transcribe_chunk_groq(chunk_path: str) -> str:
     """
     Split audio into 25-second pieces,
-    send each piece to Sarvam and combine transcripts.
+    send each piece to GROQ and combine transcripts.
     """
 
-    if not SARVAM_API_KEY:
+    if not GROQ_API_KEY:
         raise RuntimeError(
-            "SARVAM_API_KEY is not set in environment / .env"
+            "GROQ_API_KEY is not set in environment / .env"
         )
 
     audio = AudioSegment.from_wav(chunk_path)
 
-    piece_ms = SARVAM_PIECE_SECONDS * 1000
+    piece_ms = GROQ_PIECE_SECONDS * 1000
 
     full_text = ""
 
@@ -143,10 +143,10 @@ def transcribe_chunk_sarvam(chunk_path: str) -> str:
 
         try:
             print(
-                f"  -> Sarvam piece {i + 1}/{total_pieces} ..."
+                f"  -> GROQ piece {i + 1}/{total_pieces} ..."
             )
 
-            full_text += _send_to_sarvam(piece_path) + " "
+            full_text += _send_to_groq(piece_path) + " "
 
         finally:
             if os.path.exists(piece_path):
@@ -160,14 +160,14 @@ def transcribe_chunk(
     language: str = "english"
 ) -> str:
     """
-    Route audio to Whisper or Sarvam.
+    Route audio to Whisper or Groq.
 
     English  -> Whisper
-    urdu -> Sarvam AI
+    urdu -> GROQ
     """
 
     if language.lower() == "urdu":
-        return transcribe_chunk_sarvam(chunk_path)
+        return transcribe_chunk_groq(chunk_path)
 
     return transcribe_chunk_whisper(chunk_path)
 
@@ -181,7 +181,7 @@ def transcribe_all(
     full_transcript = ""
 
     engine = (
-        "Sarvam AI"
+        "GROQ"
         if language.lower() == "urdu"
         else "Whisper"
     )
