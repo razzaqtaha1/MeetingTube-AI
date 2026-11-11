@@ -7,8 +7,8 @@ from core.vector_store import build_vector_store, load_vector_store, get_retriev
 
 def get_llm():
     return ChatGoogleGenerativeAI(
-        model="gemini-pro",
-        google_api_key=os.getenv("GROQ_API_KEY"),
+        model="gemini-3.5-flash",
+        google_api_key=os.getenv("GEMINI_API_KEY"),
         temperature=0.3,
     )
 

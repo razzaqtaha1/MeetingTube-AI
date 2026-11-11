@@ -1,79 +1,79 @@
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_core.runnables import RunnablePassthrough, RunnableLambda
 
-import os 
+import os
 
-def get_llm():
-    return ChatGoogleGenerativeAI(model = "gemini-pro", google_api_key = os.getenv("GROQ_API_KEY"),temperature=0.3)
+from dotenv import load_dotenv
+from groq import Groq
+
+load_dotenv()
 
 
-def split_transcript(transcript: str) -> list:
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size = 3000,
-        chunk_overlap = 200
+def get_client():
+    api_key = os.getenv("GROQ_API_KEY")
+
+    if not api_key:
+        raise ValueError("GROQ_API_KEY is missing.")
+
+    return Groq(
+        api_key=api_key,
+        timeout=30.0,
+        max_retries=1
     )
 
-    return splitter.split_text(transcript)
 
-def summarize(transcript : str) -> str:
-    llm = get_llm()
+def generate_title(transcript: str) -> str:
+    """Generate title without an API call."""
 
-    map_prompt = ChatPromptTemplate.from_messages(
-        [
-        ("system", "Summarize this portion of a meeting transcript concisely."),
-        ("human", "{text}"),
-    ]
+    if not transcript or not transcript.strip():
+        return "Untitled Meeting"
+
+    words = transcript.strip().split()
+
+    return " ".join(words[:8]) + (
+        "..." if len(words) > 8 else ""
     )
 
-    map_chain = map_prompt | llm | StrOutputParser()
 
-    chunks = split_transcript(transcript)
+def summarize(transcript: str) -> str:
+    """Generate meeting summary using Groq."""
 
-    chunk_summaries = [map_chain.invoke({"text" : chunk}) for chunk in chunks]
+    if not transcript or not transcript.strip():
+        return "No transcript available."
 
-    combined = "\n\n".join(chunk_summaries)
+    print("Generating summary using Groq...")
 
-    combined_prompt = ChatPromptTemplate.from_messages(
-        [
-        (
-            "system",
-            "You are an expert meeting summarizer. Combine these partial summaries "
-            "into one final professional meeting summary in bullet points.",
-        ),
-        ("human", "{text}"),
-    ]
-    )
+    try:
+        client = get_client()
 
-    combined_chain = (
-        RunnablePassthrough() | RunnableLambda(lambda x:{"text":x}) | combined_prompt | llm | StrOutputParser()
-    )
+        response = client.chat.completions.create(
+            model="openai/gpt-oss-20b",
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are an expert meeting summarizer. "
+                        "Summarize the complete transcript using "
+                        "clear headings and bullet points. "
+                        "Include important topics, details and "
+                        "conclusions. Do not invent information. "
+                        "Keep the summary within 500 words."
+                    )
+                },
+                {
+                    "role": "user",
+                    "content": f"Meeting transcript:\n{transcript}"
+                }
+            ],
+            temperature=0.2,
+            max_completion_tokens=1024
+        )
 
-    return combined_chain.invoke(combined)
+        result = response.choices[0].message.content
 
-def generate_title(transcipt : str) -> str:
-    llm = get_llm()
+        if not result:
+            return "Empty summary received from Groq."
 
-    
+        return " ".join(result.split()[:500])
 
-    title_chain = (
-        RunnablePassthrough() | RunnableLambda(lambda x:{"text":x}) | 
-        ChatPromptTemplate.from_messages([
-             (
-                "system",
-                "Based on the meeting transcript, generate a short professional meeting title "
-                "(max 8 words). Only return the title, nothing else.",
-            ),
-            ("human", "{text}"),
-        ])
-        | llm
-        |StrOutputParser()
-    )
-
-    return title_chain.invoke(transcipt[:2000])
-
-
-
-
+    except Exception as e:
+        print(f"Summary generation failed: {e}")
+        return "Summary could not be generated. Please try again."

@@ -1,126 +1,101 @@
 
 import os
-
-# Set Whisper model cache directory to D drive
-WHISPER_CACHE_DIR = r"D:\Whisper-Models"
-os.makedirs(WHISPER_CACHE_DIR, exist_ok=True)
-os.environ["XDG_CACHE_HOME"] = WHISPER_CACHE_DIR
-
-import whisper
-import requests
 from dotenv import load_dotenv
+from groq import Groq
 from pydub import AudioSegment
 
-# Load environment variables from .env
 load_dotenv()
 
-# GROQ API accepts audio up to 30 seconds.
-# We use 25-second pieces with a safety margin.
-GROQ_PIECE_SECONDS = 25
-
-# Whisper model configuration
-WHISPER_MODEL = os.getenv("WHISPER_MODEL", "small").strip()
-
-# Fix incorrect model naming automatically
-if WHISPER_MODEL == "whisper-large-v3":
-    WHISPER_MODEL = "large-v3"
-
+# Groq Configuration
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+GROQ_MODEL = os.getenv("GROQ_STT_MODEL", "whisper-large-v3")
 
-GROQ_STT_TRANSLATE_URL = (
-    "https://api.groq.com/openai/v1/audio/transcriptions"
-)
+# Maximum audio upload size
+MAX_AUDIO_SIZE = 20 * 1024 * 1024
 
-GROQ_MODEL = os.getenv(
-    "GROQ_STT_MODEL",
-    "saaras:v2.5"
-)
-
-_model = None
+_client = None
 
 
-def load_model():
-    """Load Whisper model only once."""
+def get_groq_client():
+    """Initialize Groq client only once."""
 
-    global _model
-
-    if _model is None:
-        print(f"Loading Whisper model: {WHISPER_MODEL} ...")
-        print(f"Whisper cache directory: {WHISPER_CACHE_DIR}")
-
-        _model = whisper.load_model(WHISPER_MODEL)
-
-        print("Whisper model loaded.")
-
-    return _model
-
-
-def transcribe_chunk_whisper(chunk_path: str) -> str:
-    """Transcribe an audio chunk using local Whisper."""
-
-    model = load_model()
-
-    result = model.transcribe(
-        chunk_path,
-        task="transcribe"
-    )
-
-    return result["text"]
-
-
-def _send_to_groq(piece_path: str) -> str:
-    """Send one audio piece to GROQ and return English transcript."""
-
-    headers = {
-        "api-subscription-key": GROQ_API_KEY
-    }
-
-    with open(piece_path, "rb") as f:
-
-        files = {
-            "file": (
-                os.path.basename(piece_path),
-                f,
-                "audio/wav"
-            )
-        }
-
-        data = {
-            "model": GROQ_MODEL,
-            "with_diarization": "false"
-        }
-
-        response = requests.post(
-            GROQ_STT_TRANSLATE_URL,
-            headers=headers,
-            files=files,
-            data=data,
-            timeout=120
-        )
-
-    if not response.ok:
-        print(f"\nGROQ returned {response.status_code}")
-        print(f"Response body: {response.text}\n")
-
-        response.raise_for_status()
-
-    return response.json().get("transcript", "")
-
-
-def transcribe_chunk_groq(chunk_path: str) -> str:
-    """
-    Split audio into 25-second pieces,
-    send each piece to GROQ and combine transcripts.
-    """
+    global _client
 
     if not GROQ_API_KEY:
         raise RuntimeError(
-            "GROQ_API_KEY is not set in environment / .env"
+            "GROQ_API_KEY is missing. Please check your .env file."
         )
 
-    audio = AudioSegment.from_wav(chunk_path)
+    if _client is None:
+        _client = Groq(api_key=GROQ_API_KEY)
 
-    piece_ms = GROQ_PIECE_SECONDS * 1000
+    return _client
+
+
+def _send_to_groq(audio_path: str, language: str = "english") -> str:
+    """Send audio to Groq Cloud Whisper."""
+
+    client = get_groq_client()
+
+    language_code = {
+        "english": "en",
+        "urdu": "ur"
+    }.get(language.lower())
+
+    with open(audio_path, "rb") as audio_file:
+
+        result = client.audio.transcriptions.create(
+            file=audio_file,
+            model=GROQ_MODEL,
+            language=language_code,
+            response_format="verbose_json",
+            temperature=0
+        )
+
+    transcript = result.text.strip()
+
+    print("\n========== GROQ RESPONSE DETAILS ==========")
+    print("Audio Duration:", result.duration)
+    print("Detected Language:", result.language)
+    print("Transcript Length:", len(transcript))
+    print("Transcript Ending:", transcript[-200:])
+    print("===========================================\n")
+
+    return transcript
+
+
+def transcribe_chunk_groq(
+    chunk_path: str,
+    language: str = "english"
+) -> str:
+    """Transcribe audio directly or split oversized files."""
+
+    if not os.path.exists(chunk_path):
+        raise FileNotFoundError(
+            f"Audio file not found: {chunk_path}"
+        )
+
+    file_size = os.path.getsize(chunk_path)
+
+    # Direct upload for files below 20 MB
+    if file_size <= MAX_AUDIO_SIZE:
+
+        print("Sending audio directly to Groq...")
+
+        return _send_to_groq(chunk_path, language)
+
+    # Split large audio files
+    print("Large audio detected. Splitting for Groq...")
+
+    audio = AudioSegment.from_file(chunk_path)
+
+    bytes_per_second = (
+        audio.frame_rate * audio.frame_width * audio.channels
+    )
+
+    piece_ms = int(
+        (MAX_AUDIO_SIZE / bytes_per_second) * 1000 * 0.75
+    )
 
     full_text = ""
 
@@ -128,25 +103,22 @@ def transcribe_chunk_groq(chunk_path: str) -> str:
         len(audio) + piece_ms - 1
     ) // piece_ms
 
-    for i, start in enumerate(
-        range(0, len(audio), piece_ms)
-    ):
+    for i, start in enumerate(range(0, len(audio), piece_ms)):
 
         piece = audio[start:start + piece_ms]
 
-        piece_path = f"{chunk_path}_sv_{i}.wav"
-
-        piece.export(
-            piece_path,
-            format="wav"
-        )
+        piece_path = f"{chunk_path}_groq_{i}.wav"
 
         try:
+            piece.export(piece_path, format="wav")
+
             print(
-                f"  -> GROQ piece {i + 1}/{total_pieces} ..."
+                f"Groq transcription {i + 1}/{total_pieces}..."
             )
 
-            full_text += _send_to_groq(piece_path) + " "
+            text = _send_to_groq(piece_path, language)
+
+            full_text += text + " "
 
         finally:
             if os.path.exists(piece_path):
@@ -155,21 +127,25 @@ def transcribe_chunk_groq(chunk_path: str) -> str:
     return full_text.strip()
 
 
+def transcribe_chunk_whisper(chunk_path: str) -> str:
+    """Compatibility wrapper using Groq instead of local Whisper."""
+
+    return transcribe_chunk_groq(
+        chunk_path,
+        "english"
+    )
+
+
 def transcribe_chunk(
     chunk_path: str,
     language: str = "english"
 ) -> str:
-    """
-    Route audio to Whisper or Groq.
+    """Transcribe English and Urdu audio using Groq."""
 
-    English  -> Whisper
-    urdu -> GROQ
-    """
-
-    if language.lower() == "urdu":
-        return transcribe_chunk_groq(chunk_path)
-
-    return transcribe_chunk_whisper(chunk_path)
+    return transcribe_chunk_groq(
+        chunk_path,
+        language
+    )
 
 
 def transcribe_all(
@@ -180,18 +156,14 @@ def transcribe_all(
 
     full_transcript = ""
 
-    engine = (
-        "GROQ"
-        if language.lower() == "urdu"
-        else "Whisper"
+    print(
+        f"Using Groq Cloud Whisper for {language} transcription."
     )
-
-    print(f"Using {engine} for transcription.")
 
     for i, chunk in enumerate(chunks):
 
         print(
-            f"Transcribing chunk {i + 1}/{len(chunks)}..."
+            f"\nTranscribing chunk {i + 1}/{len(chunks)}..."
         )
 
         text = transcribe_chunk(
@@ -201,6 +173,10 @@ def transcribe_all(
 
         full_transcript += text + " "
 
-    print("Transcription complete.")
+    print("\nTranscription complete.")
 
-    return full_transcript.strip()
+    final_transcript = full_transcript.strip()
+
+    print("Final Transcript Length:", len(final_transcript))
+
+    return final_transcript
