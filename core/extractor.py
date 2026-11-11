@@ -116,9 +116,15 @@ Do not use Markdown code fences.
             max_completion_tokens=1500
         )
 
+        # Debug Groq response
+        print("\n========== GROQ RESPONSE DEBUG ==========")
+        print("Finish reason:", response.choices[0].finish_reason)
+        print("Message:", response.choices[0].message)
+        print("Usage:", response.usage)
+        print("=========================================\n")
+
         result = response.choices[0].message.content
 
-        # Debug Groq response
         print("\n========== RAW GROQ EXTRACTION RESPONSE ==========")
         print(result)
         print("==================================================\n")

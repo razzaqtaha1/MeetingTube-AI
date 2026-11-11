@@ -1,6 +1,8 @@
 import html
 import re
 import time
+import os
+import tempfile
 
 import streamlit as st
 from dotenv import load_dotenv
@@ -110,6 +112,82 @@ header[data-testid="stHeader"] { background: transparent !important; }
     box-shadow: 6px 0 30px rgba(109, 74, 255, .05);
 }
 [data-testid="stSidebar"] * { color: var(--text); }
+[data-testid="stSidebar"] .block-container,
+[data-testid="stSidebarUserContent"] { padding-top: 1.2rem !important; }
+
+/* Sidebar sections */
+.sb-section {
+    display: flex; align-items: center; gap: .55rem;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: .68rem; font-weight: 700; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--text-muted);
+    margin: 1.2rem 0 .55rem;
+}
+.sb-section .s-ico {
+    width: 26px; height: 26px; border-radius: 8px;
+    display: grid; place-items: center;
+    background: var(--accent-soft);
+}
+.sb-section .s-ico i { color: var(--accent); font-size: .75rem; }
+.sb-section.s-red  .s-ico { background: #fee2e2; }
+.sb-section.s-red  .s-ico i { color: #ef4444; }
+.sb-section.s-cyan .s-ico { background: var(--accent-2-soft); }
+.sb-section.s-cyan .s-ico i { color: #0284c7; }
+.sb-section.s-pink .s-ico { background: var(--pink-soft); }
+.sb-section.s-pink .s-ico i { color: var(--accent-3); }
+.sb-section::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, var(--border), transparent); }
+
+.sb-or {
+    display: flex; align-items: center; gap: .7rem; margin: 1rem 0 .2rem;
+    font-family: 'JetBrains Mono', monospace; font-size: .6rem; letter-spacing: .22em;
+    text-transform: uppercase; color: var(--text-muted);
+}
+.sb-or::before, .sb-or::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+.sb-or span { padding: .2rem .65rem; border: 1px solid var(--border); border-radius: 999px; background: #fff; }
+
+.sb-hint {
+    display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .5rem;
+}
+.sb-hint span {
+    font-family: 'JetBrains Mono', monospace; font-size: .58rem; letter-spacing: .08em;
+    padding: .15rem .5rem; border-radius: 6px; background: var(--surface-2);
+    border: 1px solid var(--border); color: var(--text-muted); text-transform: uppercase;
+}
+
+/* File uploader */
+[data-testid="stFileUploaderDropzone"] {
+    background: var(--accent-soft) !important;
+    border: 1.5px dashed #c9bbff !important;
+    border-radius: 16px !important;
+    padding: 1.1rem .9rem !important;
+    flex-direction: column; gap: .6rem; text-align: center;
+    transition: border-color .25s, background .25s, transform .25s var(--ease);
+}
+[data-testid="stFileUploaderDropzone"]:hover {
+    border-color: var(--accent) !important;
+    background: #e8e0ff !important;
+    transform: translateY(-2px);
+}
+[data-testid="stFileUploaderDropzone"] > div { text-align: center; }
+[data-testid="stFileUploaderDropzone"] small,
+[data-testid="stFileUploaderDropzoneInstructions"] span,
+[data-testid="stFileUploaderDropzoneInstructions"] small {
+    color: var(--text-muted) !important; font-size: .72rem !important;
+}
+[data-testid="stFileUploaderDropzone"] button {
+    background: #fff !important;
+    border: 1.5px solid #d8ccff !important;
+    border-radius: 12px !important;
+    box-shadow: var(--shadow-sm) !important;
+    padding: .4rem 1rem !important;
+}
+[data-testid="stFileUploaderDropzone"] button,
+[data-testid="stFileUploaderDropzone"] button p { color: var(--accent) !important; font-weight: 700 !important; font-size: .78rem !important; }
+[data-testid="stFileUploaderDropzone"] button:hover { border-color: var(--accent) !important; background: var(--accent-soft) !important; }
+[data-testid="stFileUploaderFile"] {
+    background: #fff; border: 1px solid var(--border); border-radius: 12px;
+    padding: .4rem .6rem; margin-top: .5rem; box-shadow: var(--shadow-sm);
+}
 
 /* ═════════ Typography ═════════ */
 h1, h2, h3, h4, h5, h6 {
@@ -669,21 +747,64 @@ with st.sidebar:
     )
     st.markdown("---")
 
-    st.markdown('<span class="badge badge-purple">Input</span>', unsafe_allow_html=True)
-    source = st.text_input(
-        "YouTube URL or File Path",
-        placeholder="https://youtube.com/watch?v=... or /path/to/file.mp4",
+    st.markdown('<span class="badge badge-purple">Input Source</span>', unsafe_allow_html=True)
+
+    st.markdown(
+        '<div class="sb-section s-red"><span class="s-ico"><i class="fa-brands fa-youtube"></i></span>YouTube Link</div>',
+        unsafe_allow_html=True,
+    )
+    youtube_url = st.text_input(
+        "YouTube URL",
+        placeholder="https://youtube.com/watch?v=...",
+        label_visibility="collapsed",
     )
 
-    language = st.selectbox("Language", ["english", "urdu"], index=0)
+    st.markdown('<div class="sb-or"><span>or</span></div>', unsafe_allow_html=True)
 
-    run_btn = st.button("Analyse", icon=":material/bolt:", use_container_width=True)
+    st.markdown(
+        '<div class="sb-section"><span class="s-ico"><i class="fa-solid fa-cloud-arrow-up"></i></span>Local Video</div>',
+        unsafe_allow_html=True,
+    )
+    uploaded_file = st.file_uploader(
+        "Upload Local Video",
+        type=["mp4", "mov", "avi", "mkv", "webm"],
+        help="Upload a video from your computer.",
+        label_visibility="collapsed",
+    )
+    st.markdown(
+        '<div class="sb-hint"><span>mp4</span><span>mov</span><span>avi</span><span>mkv</span><span>webm</span></div>',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        '<div class="sb-section s-cyan"><span class="s-ico"><i class="fa-solid fa-language"></i></span>Language</div>',
+        unsafe_allow_html=True,
+    )
+    language = st.selectbox(
+        "Language",
+        ["english", "urdu"],
+        index=0,
+        label_visibility="collapsed",
+    )
+
+    st.markdown('<div style="height:.6rem"></div>', unsafe_allow_html=True)
+
+    run_btn = st.button(
+        "Analyse",
+        icon=":material/bolt:",
+        use_container_width=True,
+    )
 
     status_area = st.empty()
+
     if st.session_state.pipeline_steps:
         with status_area.container():
             st.markdown("---")
-            st.markdown('<span class="badge badge-green">Pipeline Status</span>', unsafe_allow_html=True)
+            st.markdown(
+                '<span class="badge badge-green">Pipeline Status</span>',
+                unsafe_allow_html=True,
+            )
+
         steps_box = st.empty()
         render_steps(steps_box, st.session_state.pipeline_steps)
     else:
@@ -699,8 +820,13 @@ st.markdown("---")
 
 # ── Run Pipeline ────────────────────────────────────────────────────────────────
 if run_btn:
-    if not source.strip():
-        st.error("Please enter a YouTube URL or file path.", icon=":material/error:")
+
+    if youtube_url.strip() and uploaded_file is not None:
+        st.error("Please use either a YouTube URL or a local video, not both.")
+
+    elif not youtube_url.strip() and uploaded_file is None:
+        st.error("Please enter a YouTube URL or upload a video.")
+
     else:
         st.session_state.pipeline_done = False
         st.session_state.result = None
@@ -711,7 +837,10 @@ if run_btn:
 
         with status_area.container():
             st.markdown("---")
-            st.markdown('<span class="badge badge-green">Pipeline Status</span>', unsafe_allow_html=True)
+            st.markdown(
+                '<span class="badge badge-green">Pipeline Status</span>',
+                unsafe_allow_html=True,
+            )
 
         def update_step(key, state):
             st.session_state.pipeline_steps[key] = state
@@ -720,37 +849,76 @@ if run_btn:
         try:
             progress_placeholder.markdown(
                 """<div class="running"><div class="loader"></div>
-                <div><b>Pipeline running…</b><br><span>Check Live status sidebar</span></div></div>""",
+                <div><b>Pipeline running…</b><br>
+                <span>Check Live status sidebar</span></div></div>""",
                 unsafe_allow_html=True,
             )
 
-            update_step("audio", "active")
-            chunks = process_input(source)
-            update_step("audio", "done")
+            # Prepare input source
+            if uploaded_file is not None:
+                with tempfile.TemporaryDirectory() as temp_dir:
 
-            update_step("transcript", "active")
-            transcript = transcribe_all(chunks, language)
-            update_step("transcript", "done")
+                    file_extension = os.path.splitext(uploaded_file.name)[1]
 
+                    temp_video_path = os.path.join(
+                        temp_dir,
+                        f"uploaded_video{file_extension}"
+                    )
+
+                    with open(temp_video_path, "wb") as f:
+                        f.write(uploaded_file.getbuffer())
+
+                    source = temp_video_path
+
+                    # Audio Processing
+                    update_step("audio", "active")
+                    chunks = process_input(source)
+                    update_step("audio", "done")
+
+                    # Transcription
+                    update_step("transcript", "active")
+                    transcript = transcribe_all(chunks, language)
+                    update_step("transcript", "done")
+
+            else:
+                source = youtube_url.strip()
+
+                # Audio Processing
+                update_step("audio", "active")
+                chunks = process_input(source)
+                update_step("audio", "done")
+
+                # Transcription
+                update_step("transcript", "active")
+                transcript = transcribe_all(chunks, language)
+                update_step("transcript", "done")
+
+            # Title Generation
             update_step("title", "active")
             title = generate_title(transcript)
             update_step("title", "done")
 
+            # Summary
             update_step("summary", "active")
             summary = summarize(transcript)
             update_step("summary", "done")
 
+            # Information Extraction
             update_step("extract", "active")
             extracted = extract_all(transcript)
+
             action_items = extracted["action_items"]
             decisions = extracted["decisions"]
             questions = extracted["questions"]
+
             update_step("extract", "done")
 
+            # RAG Engine
             update_step("rag", "active")
             rag_chain = build_rag_chain(transcript)
             update_step("rag", "done")
 
+            # Save Results
             st.session_state.result = {
                 "title": title,
                 "transcript": transcript,
@@ -760,18 +928,30 @@ if run_btn:
                 "open_questions": questions,
                 "rag_chain": rag_chain,
             }
+
             st.session_state.pipeline_done = True
-            progress_placeholder.success("Analysis complete!", icon=":material/check_circle:")
+
+            progress_placeholder.success(
+                "Analysis complete!",
+                icon=":material/check_circle:"
+            )
+
             time.sleep(0.6)
             progress_placeholder.empty()
             st.rerun()
 
         except Exception as e:
+
             for k, _, _ in STEPS:
                 if st.session_state.pipeline_steps.get(k) == "active":
                     st.session_state.pipeline_steps[k] = "pending"
+
             render_steps(steps_box, st.session_state.pipeline_steps)
-            progress_placeholder.error(f"Error: {e}", icon=":material/error:")
+
+            progress_placeholder.error(
+                f"Error: {e}",
+                icon=":material/error:"
+            )
 
 # ── Results ──────────────────────────────────────────────────────────────────────
 if st.session_state.result:
@@ -869,7 +1049,7 @@ else:
     <div class="empty">
         <div class="empty-ico"><i class="fa-solid fa-film"></i></div>
         <h2>Ready to Analyse</h2>
-        <p>Paste a YouTube URL or local file path in the sidebar, choose your language,
+        <p>Paste a YouTube URL or upload a local video in the sidebar, choose your language,
            and hit <strong>Analyse</strong> to get started.</p>
         <div class="features">
             <div class="feature"><div class="f-ico"><i class="fa-solid fa-closed-captioning"></i></div><div class="f-t">Transcription</div><div class="f-d">Accurately transcribe the entire audio of the video into English text</div></div>
